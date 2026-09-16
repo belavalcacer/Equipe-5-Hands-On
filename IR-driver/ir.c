@@ -2,6 +2,9 @@
 #include <linux/usb.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/cdev.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Felipe Peres de Almeida");
@@ -11,11 +14,18 @@ MODULE_VERSION("0.1");
 #define VENDOR_ID  0x10C4
 #define PRODUCT_ID 0xEA60
 
-#define MAX_PAYLOAD_SIZE 256
+#define IR_HEADER_SIZE       16
+#define IR_MAX_PAYLOAD_SIZE  1036
+#define IR_MAX_PACKET_SIZE   (IR_HEADER_SIZE + IR_MAX_PAYLOAD_SIZE)
 
-/* Protocol commands */
-#define CMD_TX 0x01
-#define CMD_RX 0x02
+#define IR_MAGIC_0  0x49  /* 'I' */
+#define IR_MAGIC_1  0x52  /* 'R' */
+
+#define IR_PROTOCOL_VERSION  1
+
+#define IR_CMD_READ   0x01
+#define IR_CMD_WRITE  0x02
+#define IR_CMD_PING   0x03
 
 /* USB endpoint number */
 #define IR_ENDPOINT 0x01
@@ -27,157 +37,150 @@ struct devtitans_ir_device {
 
     unsigned int carrier;
 
-    /* TX */
-    u8 tx_buffer[MAX_PAYLOAD_SIZE + 2];
-    size_t tx_length;
-
-    /* RX */
-    u8 rx_buffer[MAX_PAYLOAD_SIZE + 2];
-    size_t rx_length;
+    struct cdev cdev;
+    dev_t devt;
 };
 
 
 /*
- * Build:
- *
- * [COMM][LEN][PAYLOAD]
+ * Character device: open.
  */
-static int ir_build_packet(struct devtitans_ir_device *ir,
-                           u8 command,
-                           const u8 *payload,
-                           size_t payload_len)
+static int ir_open(struct inode *inode, struct file *file)
 {
-    if (payload_len > MAX_PAYLOAD_SIZE)
-        return -EMSGSIZE;
+    struct devtitans_ir_device *ir;
 
-    ir->tx_buffer[0] = command;
-    ir->tx_buffer[1] = payload_len;
+    ir = container_of(inode->i_cdev,
+                      struct devtitans_ir_device,
+                      cdev);
 
-    memcpy(&ir->tx_buffer[2], payload, payload_len);
-
-    ir->tx_length = payload_len + 2;
+    file->private_data = ir;
 
     return 0;
 }
 
 
 /*
- * Transmit the packet to the ESP32.
+ * Character device: write.
+ *
+ * The userspace buffer is sent directly to the USB OUT endpoint.
+ *
+ * Userspace is responsible for constructing the packet:
  */
-static int ir_transmit_packet(struct devtitans_ir_device *ir)
+static ssize_t ir_write(struct file *file,
+                        const char __user *buf,
+                        size_t count,
+                        loff_t *ppos)
 {
+    struct devtitans_ir_device *ir = file->private_data;
+    u8 *packet;
     int actual_length;
     int ret;
+
+    if (count == 0)
+        return 0;
+
+    if (count < IR_HEADER_SIZE)
+        return -EINVAL;
+
+    if (count > IR_MAX_PACKET_SIZE)
+        return -EMSGSIZE;
+
+    packet = memdup_user(buf, count);
+    if (IS_ERR(packet))
+        return PTR_ERR(packet);
 
     ret = usb_bulk_msg(
         ir->udev,
         usb_sndbulkpipe(ir->udev, IR_ENDPOINT),
-        ir->tx_buffer,
-        ir->tx_length,
+        packet,
+        count,
         &actual_length,
         1000
     );
 
+    kfree(packet);
+
     if (ret) {
         dev_err(&ir->interface->dev,
-                "Failed to transmit IR packet: %d\n",
+                "Failed to transmit packet: %d\n",
                 ret);
         return ret;
     }
 
-    if (actual_length != ir->tx_length) {
+    if (actual_length != count) {
         dev_err(&ir->interface->dev,
                 "Incomplete transmission: %d/%zu bytes\n",
                 actual_length,
-                ir->tx_length);
+                count);
         return -EIO;
     }
 
-    return 0;
+    return count;
 }
 
-
 /*
- * Build and transmit an IR packet.
- */
-static int ir_transmit(struct devtitans_ir_device *ir,
-                       const u8 *payload,
-                       size_t payload_len)
-{
-    int ret;
-
-    ret = ir_build_packet(ir, CMD_TX, payload, payload_len);
-    if (ret)
-        return ret;
-
-    return ir_transmit_packet(ir);
-}
-
-
-/*
- * Receive a packet from the ESP32.
+ * Character device: read.
  *
- * Expected format:
- *
- * [COMM][LEN][PAYLOAD]
+ * A packet is received directly from the USB IN endpoint
+ * and returned to userspace unchanged.
  */
-static int ir_receive_packet(struct devtitans_ir_device *ir)
+static ssize_t ir_read(struct file *file,
+                       char __user *buf,
+                       size_t count,
+                       loff_t *ppos)
 {
+    struct devtitans_ir_device *ir = file->private_data;
+    u8 *packet;
     int actual_length;
     int ret;
-    u8 command;
-    u8 payload_length;
+
+    if (count == 0)
+        return 0;
+
+    if (count < IR_MAX_PACKET_SIZE)
+        return -EINVAL;
+
+    packet = kmalloc(IR_MAX_PACKET_SIZE, GFP_KERNEL);
+    if (!packet)
+        return -ENOMEM;
 
     ret = usb_bulk_msg(
         ir->udev,
         usb_rcvbulkpipe(ir->udev, IR_ENDPOINT),
-        ir->rx_buffer,
-        sizeof(ir->rx_buffer),
+        packet,
+        IR_MAX_PACKET_SIZE,
         &actual_length,
         1000
     );
 
     if (ret) {
         dev_err(&ir->interface->dev,
-                "Failed to receive IR packet: %d\n",
+                "Failed to receive packet: %d\n",
                 ret);
+        kfree(packet);
         return ret;
     }
 
-    if (actual_length < 2) {
-        dev_err(&ir->interface->dev,
-                "Received packet is too short: %d bytes\n",
-                actual_length);
-        return -EINVAL;
+    if (copy_to_user(buf, packet, actual_length)) {
+        kfree(packet);
+        return -EFAULT;
     }
 
-    command = ir->rx_buffer[0];
-    payload_length = ir->rx_buffer[1];
+    kfree(packet);
 
-    if (payload_length > MAX_PAYLOAD_SIZE) {
-        dev_err(&ir->interface->dev,
-                "Invalid payload length: %u\n",
-                payload_length);
-        return -EINVAL;
-    }
-
-    if (actual_length != payload_length + 2) {
-        dev_err(&ir->interface->dev,
-                "Invalid packet size: received %d, expected %u\n",
-                actual_length,
-                payload_length + 2);
-        return -EINVAL;
-    }
-
-    ir->rx_length = actual_length;
-
-    dev_info(&ir->interface->dev,
-             "Received command 0x%02X, payload length %u\n",
-             command,
-             payload_length);
-
-    return 0;
+    return actual_length;
 }
+
+
+/*
+ * Character device operations.
+ */
+static const struct file_operations ir_fops = {
+    .owner = THIS_MODULE,
+    .open = ir_open,
+    .read = ir_read,
+    .write = ir_write,
+};
 
 
 /*
@@ -228,6 +231,15 @@ MODULE_DEVICE_TABLE(usb, ir_table);
 
 
 /*
+ * Character device class.
+ *
+ * This is a Linux class for the /dev character device.
+ * It is NOT the USB device class.
+ */
+static struct class *ir_class;
+
+
+/*
  * Probe.
  */
 
@@ -249,7 +261,7 @@ static int ir_probe(struct usb_interface *interface,
     ir->carrier = 38000;
 
     /*
-     * Find the endpoint.
+     * Find and display the USB endpoints.
      */
     iface_desc = interface->cur_altsetting;
 
@@ -278,6 +290,45 @@ static int ir_probe(struct usb_interface *interface,
         return ret;
     }
 
+    /*
+     * Allocate character device number.
+     */
+    ret = alloc_chrdev_region(&ir->devt, 0, 1, "devtitans_ir");
+    if (ret) {
+        device_remove_file(&interface->dev, &dev_attr_carrier);
+        dev_set_drvdata(&interface->dev, NULL);
+        usb_set_intfdata(interface, NULL);
+        return ret;
+    }
+
+    /*
+     * Initialize character device.
+     */
+    cdev_init(&ir->cdev, &ir_fops);
+    ir->cdev.owner = THIS_MODULE;
+
+    /*
+     * Register character device.
+     */
+    ret = cdev_add(&ir->cdev, ir->devt, 1);
+    if (ret) {
+        unregister_chrdev_region(ir->devt, 1);
+        device_remove_file(&interface->dev, &dev_attr_carrier);
+        dev_set_drvdata(&interface->dev, NULL);
+        usb_set_intfdata(interface, NULL);
+        return ret;
+    }
+
+    /*
+     * Create /dev/devtitans_ir0.
+     */
+    device_create(ir_class,
+                  &interface->dev,
+                  ir->devt,
+                  NULL,
+                  "devtitans_ir%d",
+                  MINOR(ir->devt));
+
     dev_info(&interface->dev,
              "DevTitans IR device connected\n");
 
@@ -291,6 +342,19 @@ static int ir_probe(struct usb_interface *interface,
 
 static void ir_disconnect(struct usb_interface *interface)
 {
+    struct devtitans_ir_device *ir;
+
+    ir = usb_get_intfdata(interface);
+
+    if (!ir)
+        return;
+
+    device_destroy(ir_class, ir->devt);
+
+    cdev_del(&ir->cdev);
+
+    unregister_chrdev_region(ir->devt, 1);
+
     device_remove_file(&interface->dev, &dev_attr_carrier);
 
     usb_set_intfdata(interface, NULL);
@@ -299,7 +363,6 @@ static void ir_disconnect(struct usb_interface *interface)
     dev_info(&interface->dev,
              "DevTitans IR device disconnected\n");
 }
-
 
 /*
  * USB driver.
@@ -312,4 +375,39 @@ static struct usb_driver devtitans_ir_driver = {
     .id_table = ir_table,
 };
 
-module_usb_driver(devtitans_ir_driver);
+
+
+/*
+ * Module initialization.
+ *
+ * We need manual module init/exit here because the character-device
+ * class has to exist before probe() can call device_create().
+ */
+
+static int __init devtitans_ir_init(void)
+{
+    int ret;
+
+    ir_class = class_create(THIS_MODULE, "devtitans_ir");
+    if (IS_ERR(ir_class))
+        return PTR_ERR(ir_class);
+
+    ret = usb_register(&devtitans_ir_driver);
+    if (ret) {
+        class_destroy(ir_class);
+        return ret;
+    }
+
+    return 0;
+}
+
+
+static void __exit devtitans_ir_exit(void)
+{
+    usb_deregister(&devtitans_ir_driver);
+
+    class_destroy(ir_class);
+}
+
+module_init(devtitans_ir_init);
+module_exit(devtitans_ir_exit);
