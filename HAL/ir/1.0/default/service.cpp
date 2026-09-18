@@ -1,27 +1,31 @@
-/*
- * Copyright 2016 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 #define LOG_TAG "android.hardware.ir@1.0-service"
 
-#include <android/hardware/ir/1.0/IConsumerIr.h>
-#include <hidl/LegacySupport.h>
+#include <android-base/logging.h>
+#include <hidl/HidlTransportSupport.h>
+#include "ConsumerIr.h"
 
+using android::hardware::configureRpcThreadpool;
+using android::hardware::joinRpcThreadpool;
 using android::hardware::ir::V1_0::IConsumerIr;
-using android::hardware::defaultPassthroughServiceImplementation;
+using android::hardware::ir::V1_0::implementation::ConsumerIr;
 
 int main() {
-    return defaultPassthroughServiceImplementation<IConsumerIr>();
+    // Configura 1 thread dedicada para ouvir os comandos do App
+    configureRpcThreadpool(1, true /* callerWillJoin */);
+
+    // Cria a instância da sua classe (que vai abrir o /dev/devtitans_ir0)
+    android::sp<IConsumerIr> ir = new ConsumerIr();
+
+    // Registra o serviço no Android com o nome "default"
+    if (ir->registerAsService("default") != android::OK) {
+        LOG(ERROR) << "Falha ao registrar o servico da HAL de IR.";
+        return 1;
+    }
+
+    LOG(INFO) << "Servico da HAL de IR (Equipe 5) iniciado com sucesso.";
+    
+    // Mantém o processo vivo rodando em background
+    joinRpcThreadpool();
+    
+    return 1; // O código nunca deve passar daqui
 }
