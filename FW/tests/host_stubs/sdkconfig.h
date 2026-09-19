@@ -1,0 +1,3 @@
+#pragma once
+#define CONFIG_IR_RX_CAPTURE_TIMEOUT_MS 5000
+#define CONFIG_IR_RX_IDLE_US 40000
