@@ -15,6 +15,44 @@ static uint8_t output[IR_PROTOCOL_MAX_PACKET];
 static ir_code_t working_code;
 static bool initialized;
 
+static const char *command_name(uint8_t command)
+{
+    switch (command) {
+    case IR_COMMAND_READ: return "READ";
+    case IR_COMMAND_WRITE: return "WRITE";
+    case IR_COMMAND_PING: return "PING";
+    default: return "UNKNOWN";
+    }
+}
+
+static const char *status_name(ir_status_t status)
+{
+    switch (status) {
+    case IR_STATUS_OK: return "OK";
+    case IR_STATUS_INVALID_COMMAND: return "INVALID_COMMAND";
+    case IR_STATUS_INVALID_LENGTH: return "INVALID_LENGTH";
+    case IR_STATUS_INVALID_PAYLOAD: return "INVALID_PAYLOAD";
+    case IR_STATUS_CRC_ERROR: return "CRC_ERROR";
+    case IR_STATUS_NO_DATA: return "NO_DATA";
+    case IR_STATUS_BUSY: return "BUSY";
+    case IR_STATUS_TX_ERROR: return "TX_ERROR";
+    case IR_STATUS_INTERNAL_ERROR: return "INTERNAL_ERROR";
+    default: return "UNKNOWN";
+    }
+}
+
+/* This is only an ESP-IDF console log (UART0); never write it to UART1. */
+static void log_header(const char *direction, const uint8_t *packet)
+{
+    ESP_LOGI(TAG,
+             "%s header magic=0x%04x version=%u command=%s(0x%02x) "
+             "flags=0x%02x status=0x%02x sequence=%u payload_length=%lu crc=0x%08lx",
+             direction, ir_read_u16_le(packet), packet[2], command_name(packet[3]),
+             packet[3], packet[4], packet[5], ir_read_u16_le(packet + 6),
+             (unsigned long)ir_read_u32_le(packet + 8),
+             (unsigned long)ir_read_u32_le(packet + 12));
+}
+
 uint16_t ir_read_u16_le(const uint8_t *p)
 {
     return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
@@ -104,8 +142,16 @@ static void respond(const uint8_t *request, ir_status_t status, size_t payload_l
     ir_write_u16_le(output + 6, ir_read_u16_le(request + 6));
     ir_write_u32_le(output + 8, payload_len);
     ir_write_u32_le(output + 12, ir_protocol_crc32(output, output + 16, payload_len));
+    log_header("TX sending", output);
     esp_err_t err = ir_transport_write(output, IR_PROTOCOL_HEADER_SIZE + payload_len);
-    if (err != ESP_OK) { ESP_LOGE(TAG, "Response failed: %s", esp_err_to_name(err)); }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "TX %s response sequence=%u failed: %s", command_name(request[3]),
+                 ir_read_u16_le(request + 6), esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "TX sent %s response sequence=%u status=%s payload_length=%u",
+                 command_name(request[3]), ir_read_u16_le(request + 6), status_name(status),
+                 (unsigned)payload_len);
+    }
 }
 
 static void process_request(size_t len)
@@ -113,14 +159,20 @@ static void process_request(size_t len)
     ir_status_t status = IR_STATUS_OK;
     size_t response_len = 0;
     /* Ignore incoming responses to avoid response loops. */
-    if (input[4] & IR_PROTOCOL_RESPONSE) { return; }
+    if (input[4] & IR_PROTOCOL_RESPONSE) {
+        ESP_LOGI(TAG, "RX response ignored to prevent a response loop");
+        return;
+    }
     if (input[2] != IR_PROTOCOL_VERSION || input[4] != 0 || input[5] != 0) {
+        ESP_LOGW(TAG, "RX invalid request fields; returning INVALID_PAYLOAD");
         respond(input, IR_STATUS_INVALID_PAYLOAD, 0);
         return;
     }
     esp_err_t err;
     switch (input[3]) {
     case IR_COMMAND_READ:
+        ESP_LOGI(TAG, "RX READ received; starting a new capture (timeout %d ms)",
+                 CONFIG_IR_RX_CAPTURE_TIMEOUT_MS);
         if (len != 0) { status = IR_STATUS_INVALID_LENGTH; break; }
         err = ir_rx_capture(&working_code, CONFIG_IR_RX_CAPTURE_TIMEOUT_MS);
         if (err == ESP_ERR_TIMEOUT) { status = IR_STATUS_NO_DATA; }
@@ -133,16 +185,20 @@ static void process_request(size_t len)
         }
         break;
     case IR_COMMAND_WRITE:
+        ESP_LOGI(TAG, "RX WRITE received; payload_length=%u, validating IR code", (unsigned)len);
         status = ir_protocol_decode_code(input + 16, len, &working_code);
         if (status != IR_STATUS_OK) { break; }
+        ESP_LOGI(TAG, "RX WRITE valid; sending %u RMT symbols", working_code.symbol_count);
         err = ir_tx_send(&working_code);
         if (err == ESP_ERR_TIMEOUT) { status = IR_STATUS_BUSY; }
         else if (err != ESP_OK) { status = IR_STATUS_TX_ERROR; }
         break;
     case IR_COMMAND_PING:
+        ESP_LOGI(TAG, "RX PING received; payload_length=%u", (unsigned)len);
         if (len != 0) { status = IR_STATUS_INVALID_LENGTH; }
         break;
     default:
+        ESP_LOGW(TAG, "RX unknown command 0x%02x", input[3]);
         status = IR_STATUS_INVALID_COMMAND;
         break;
     }
@@ -162,13 +218,19 @@ static void parse_buffer(void)
         if (used < IR_PROTOCOL_HEADER_SIZE) { return; }
         uint32_t len = ir_read_u32_le(input + 8);
         if (len > IR_PROTOCOL_MAX_PAYLOAD) {
+            log_header("RX rejected", input);
+            ESP_LOGW(TAG, "RX payload_length=%lu exceeds maximum=%u",
+                     (unsigned long)len, IR_PROTOCOL_MAX_PAYLOAD);
             if (!(input[4] & IR_PROTOCOL_RESPONSE)) { respond(input, IR_STATUS_INVALID_LENGTH, 0); }
             discard(1);
             continue;
         }
         size_t packet_len = IR_PROTOCOL_HEADER_SIZE + len;
         if (used < packet_len) { return; }
+        log_header("RX received", input);
         if (ir_read_u32_le(input + 12) != ir_protocol_crc32(input, input + 16, len)) {
+            ESP_LOGW(TAG, "RX CRC mismatch for %s sequence=%u", command_name(input[3]),
+                     ir_read_u16_le(input + 6));
             if (!(input[4] & IR_PROTOCOL_RESPONSE)) { respond(input, IR_STATUS_CRC_ERROR, 0); }
             discard(1);
             continue;
@@ -208,6 +270,7 @@ static void protocol_task(void *arg)
     for (;;) {
         int count = ir_transport_read(bytes, sizeof(bytes), pdMS_TO_TICKS(50));
         if (count < 0) {
+            ESP_LOGW(TAG, "UART receive error; resetting protocol parser");
             ir_protocol_reset();
         } else if (count > 0) {
             ir_protocol_feed(bytes, (size_t)count);
