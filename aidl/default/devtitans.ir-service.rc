@@ -1,0 +1,4 @@
+service vendor.devtitans.ir-default /vendor/bin/hw/devtitans.ir-service
+    class hal
+    user system
+    group system
