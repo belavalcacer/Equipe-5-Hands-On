@@ -1,0 +1,11 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+
+# Ignorar caches do Gradle e dependências locais
+.gradle/
+.gradle-user/
+build/
+android/.gradle/
+android/.gradle-user/
+android/build/
