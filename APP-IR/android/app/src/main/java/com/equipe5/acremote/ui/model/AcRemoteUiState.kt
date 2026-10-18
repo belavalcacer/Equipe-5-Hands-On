@@ -8,6 +8,7 @@ data class AcRemoteUiState(
     val deviceName: String = "",
     val deviceBrand: String = "",
     val learningCommand: IrCommand? = null,
+    val learningTimedOutCommand: IrCommand? = null,
     val learnedCommands: Set<IrCommand> = emptySet()
 )
 
