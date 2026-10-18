@@ -9,7 +9,24 @@ data class AcRemoteUiState(
     val deviceBrand: String = "",
     val learningCommand: IrCommand? = null,
     val learningTimedOutCommand: IrCommand? = null,
-    val learnedCommands: Set<IrCommand> = emptySet()
+    val learnedCommands: Set<IrCommand> = emptySet(),
+    val controls: List<RegisteredControl> = listOf(
+        RegisteredControl(
+            id = 1L,
+            name = "Controle LG",
+            brand = "LG",
+            irCommands = IrCommand.entries.toSet()
+        )
+    ),
+    val activeControlId: Long = 1L,
+    val nextControlId: Long = 2L
+)
+
+data class RegisteredControl(
+    val id: Long,
+    val name: String,
+    val brand: String,
+    val irCommands: Set<IrCommand>
 )
 
 enum class AppScreen { Remote, AddDevice }

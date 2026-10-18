@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.equipe5.acremote.ui.model.AcRemoteUiState
 import com.equipe5.acremote.ui.model.AppScreen
 import com.equipe5.acremote.ui.model.IrCommand
+import com.equipe5.acremote.ui.model.RegisteredControl
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -48,6 +49,12 @@ class AcRemoteViewModel : ViewModel() {
 
     fun updateDeviceBrand(brand: String) = updateState { it.copy(deviceBrand = brand) }
 
+    fun selectControl(controlId: Long) = updateState { state ->
+        state.controls.firstOrNull { it.id == controlId }?.let { control ->
+            state.copy(brand = control.brand, activeControlId = control.id)
+        } ?: state
+    }
+
     /**
      * Ponto de integração futuro: o serviço de IR deve iniciar a escuta aqui e
      * chamar [confirmIrCommandLearned] após receber um sinal válido da HAL.
@@ -82,11 +89,20 @@ class AcRemoteViewModel : ViewModel() {
     fun saveDevice() {
         learningTimeoutJob?.cancel()
         updateState {
+            val control = RegisteredControl(
+                id = it.nextControlId,
+                name = it.deviceName.ifBlank { it.deviceBrand },
+                brand = it.deviceBrand,
+                irCommands = it.learnedCommands
+            )
             it.copy(
-                brand = it.deviceBrand.ifBlank { it.deviceName }.ifBlank { it.brand },
+                brand = control.brand,
                 screen = AppScreen.Remote,
                 learningCommand = null,
-                learningTimedOutCommand = null
+                learningTimedOutCommand = null,
+                controls = it.controls + control,
+                activeControlId = control.id,
+                nextControlId = control.id + 1
             )
         }
     }

@@ -61,10 +61,21 @@ private fun ACRemoteApp(viewModel: AcRemoteViewModel = viewModel()) {
                 Column(Modifier.padding(24.dp)) {
                     Text("Controles por marca", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(20.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.AcUnit, null, tint = Cyan)
-                        Spacer(Modifier.width(12.dp))
-                        Text(uiState.brand, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    uiState.controls.forEach { control ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable {
+                                scope.launch { drawerState.close() }
+                                viewModel.selectControl(control.id)
+                            }.padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.AcUnit, null, tint = if (control.id == uiState.activeControlId) Cyan else Ink)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(control.brand, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                                Text(control.name, color = Ink.copy(alpha = 0.62f), fontSize = 12.sp)
+                            }
+                        }
                     }
                     Spacer(Modifier.height(16.dp))
                     Row(
