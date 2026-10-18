@@ -1,0 +1,12 @@
+<resources>
+    <style name="Theme.TitanBeam" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:statusBarColor">#F5F8FC</item>
+        <item name="android:navigationBarColor">#F5F8FC</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:colorAccent">#22A9D0</item>
+        <item name="android:windowSplashScreenBackground">#F5F8FC</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/titan_beam_splash_icon</item>
+    </style>
+</resources>

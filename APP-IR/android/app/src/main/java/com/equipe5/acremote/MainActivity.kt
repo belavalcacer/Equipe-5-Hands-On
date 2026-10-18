@@ -25,7 +25,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,11 +42,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.equipe5.acremote.ui.model.AppScreen
 import com.equipe5.acremote.ui.screens.AddDeviceScreen
 import com.equipe5.acremote.ui.screens.RemoteScreen
+import com.equipe5.acremote.ui.screens.LoadingScreen
 import com.equipe5.acremote.ui.theme.Cyan
 import com.equipe5.acremote.ui.theme.Ink
 import com.equipe5.acremote.ui.theme.Pale
 import com.equipe5.acremote.ui.viewmodel.AcRemoteViewModel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,7 +62,19 @@ private fun ACRemoteApp(viewModel: AcRemoteViewModel = viewModel()) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        delay(1_500)
+        isLoading = false
+    }
+
     MaterialTheme {
+        if (isLoading) {
+            LoadingScreen()
+            return@MaterialTheme
+        }
+
         ModalNavigationDrawer(drawerState = drawerState, drawerContent = {
             ModalDrawerSheet {
                 Column(Modifier.padding(24.dp)) {

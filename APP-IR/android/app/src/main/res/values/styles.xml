@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.ACRemote" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="Theme.TitanBeam" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:statusBarColor">#F5F8FC</item>
         <item name="android:navigationBarColor">#F5F8FC</item>
@@ -7,4 +7,5 @@
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:colorAccent">#22A9D0</item>
     </style>
+
 </resources>
