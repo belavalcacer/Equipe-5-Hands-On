@@ -27,8 +27,9 @@ import com.equipe5.acremote.ui.theme.*
 @Composable
 fun AddDeviceScreen(uiState: AcRemoteUiState, onBack: () -> Unit, onDeviceNameChange: (String) -> Unit, onDeviceBrandChange: (String) -> Unit, onStartLearning: (IrCommand) -> Unit, onConfirmLearning: (IrCommand) -> Unit, onSave: () -> Unit) {
     val complete = IrCommand.entries.all { it in uiState.learnedCommands }
+    val editing = uiState.editingControlId != null
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Voltar", tint = Ink) }; Spacer(Modifier.width(8.dp)); Column { Text("Adicionar controle", color = Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold); Text("Cadastre e ensine os comandos IR", color = MutedText, fontSize = 14.sp) } }
+        Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Voltar", tint = Ink) }; Spacer(Modifier.width(8.dp)); Column { Text(if (editing) "Editar controle" else "Adicionar controle", color = Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold); Text(if (editing) "Atualize os dados e reaprenda os comandos" else "Cadastre e ensine os comandos IR", color = MutedText, fontSize = 14.sp) } }
         Spacer(Modifier.height(24.dp))
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(Color.White).padding(20.dp)) {
             Text("Dados do dispositivo", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.height(14.dp))
@@ -41,15 +42,16 @@ fun AddDeviceScreen(uiState: AcRemoteUiState, onBack: () -> Unit, onDeviceNameCh
         LearnCommandCard("Desligar", "Pressione o botão de desligar no controle físico", IrCommand.PowerOff, uiState, onStartLearning, onConfirmLearning); Spacer(Modifier.height(10.dp))
         LearnCommandCard("Aumentar temperatura", "Pressione o botão + no controle físico", IrCommand.TemperatureUp, uiState, onStartLearning, onConfirmLearning); Spacer(Modifier.height(10.dp))
         LearnCommandCard("Diminuir temperatura", "Pressione o botão − no controle físico", IrCommand.TemperatureDown, uiState, onStartLearning, onConfirmLearning)
-        Spacer(Modifier.height(24.dp)); Button(onClick = onSave, enabled = uiState.deviceBrand.isNotBlank() && complete, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Cyan, disabledContainerColor = Color(0xFFD9E0E5))) { Text("Salvar controle", fontWeight = FontWeight.Bold) }
+        Spacer(Modifier.height(24.dp)); Button(onClick = onSave, enabled = uiState.deviceBrand.isNotBlank() && complete, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Cyan, disabledContainerColor = Color(0xFFD9E0E5))) { Text(if (editing) "Salvar alterações" else "Salvar controle", fontWeight = FontWeight.Bold) }
     }
 }
 
 @Composable private fun DeviceTextField(label: String, placeholder: String, value: String, onValueChange: (String) -> Unit) { OutlinedTextField(value, onValueChange, Modifier.fillMaxWidth(), label = { Text(label) }, placeholder = { Text(placeholder) }, singleLine = true, keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Cyan, focusedLabelColor = Cyan)) }
 @Composable private fun LearnCommandCard(title: String, hint: String, command: IrCommand, uiState: AcRemoteUiState, onStartLearning: (IrCommand) -> Unit, onConfirmLearning: (IrCommand) -> Unit) {
     val learned = command in uiState.learnedCommands; val listening = uiState.learningCommand == command; val timedOut = uiState.learningTimedOutCommand == command
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).clickable(enabled = !learned) { if (listening) onConfirmLearning(command) else onStartLearning(command) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(42.dp).clip(CircleShape).background(if (learned) Cyan else Color(0xFFEAF5F8)), contentAlignment = Alignment.Center) { if (learned) Icon(Icons.Default.CheckCircle, null, tint = Color.White) else Icon(if (command == IrCommand.PowerOn || command == IrCommand.PowerOff) Icons.Default.PowerSettingsNew else Icons.Default.AcUnit, null, tint = Cyan) }
-        Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f)) { Text(title, color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Medium); Text(if (listening) "Aguardando sinal do controle... toque para confirmar" else if (learned) "Comando salvo" else if (timedOut) "Nenhum sinal recebido. Toque para tentar novamente." else hint, color = if (listening || timedOut) Cyan else MutedText, fontSize = 12.sp) }; if (!learned) Icon(Icons.Default.KeyboardArrowRight, null, tint = Cyan)
+    val editing = uiState.editingControlId != null
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White).clickable(enabled = !learned || editing) { if (listening) onConfirmLearning(command) else onStartLearning(command) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(42.dp).clip(CircleShape).background(if (learned) Cyan else Color(0xFFEAF5F8)), contentAlignment = Alignment.Center) { if (learned && !listening) Icon(Icons.Default.CheckCircle, null, tint = Color.White) else Icon(if (command == IrCommand.PowerOn || command == IrCommand.PowerOff) Icons.Default.PowerSettingsNew else Icons.Default.AcUnit, null, tint = Cyan) }
+        Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f)) { Text(title, color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Medium); Text(if (listening) "Aguardando sinal do controle... toque para confirmar" else if (timedOut) "Tempo esgotado. Toque para tentar novamente." else if (learned && editing) "Comando salvo. Toque para reaprender." else if (learned) "Comando salvo" else hint, color = if (listening || timedOut) Cyan else MutedText, fontSize = 12.sp) }; if (!learned || editing) Icon(Icons.Default.KeyboardArrowRight, null, tint = Cyan)
     }
 }

@@ -24,19 +24,21 @@ class ControlStateRepository(context: Context) {
                 legacyTemperature = savedTemperature,
                 legacyIsOn = savedIsOn
             )
-            val controls = savedControls.ifEmpty { defaultState.controls }
-            val activeControlId = root.optLong(ACTIVE_CONTROL_ID_KEY, controls.first().id)
+            val controls = savedControls
+            val activeControlId = root.optLong(ACTIVE_CONTROL_ID_KEY, controls.firstOrNull()?.id ?: 0L)
                 .takeIf { id -> controls.any { it.id == id } }
-                ?: controls.first().id
-            val activeControl = controls.first { it.id == activeControlId }
+                ?: controls.firstOrNull()?.id
+                ?: 0L
+            val activeControl = controls.firstOrNull { it.id == activeControlId }
 
             defaultState.copy(
-                brand = activeControl.brand,
-                temperature = activeControl.temperature.coerceIn(MIN_TEMPERATURE, MAX_TEMPERATURE),
-                isOn = activeControl.isOn,
+                brand = activeControl?.brand.orEmpty(),
+                temperature = activeControl?.temperature?.coerceIn(MIN_TEMPERATURE, MAX_TEMPERATURE)
+                    ?: defaultState.temperature,
+                isOn = activeControl?.isOn ?: false,
                 controls = controls,
                 activeControlId = activeControlId,
-                nextControlId = maxOf(defaultState.nextControlId, (controls.maxOfOrNull { it.id } ?: 0L) + 1L)
+                nextControlId = maxOf(root.optLong(NEXT_CONTROL_ID_KEY, defaultState.nextControlId), (controls.maxOfOrNull { it.id } ?: 0L) + 1L)
             )
         }.getOrElse { defaultState }
     }
@@ -60,6 +62,7 @@ class ControlStateRepository(context: Context) {
         val stateJson = JSONObject().apply {
             put(CONTROLS_KEY, controlsJson)
             put(ACTIVE_CONTROL_ID_KEY, state.activeControlId)
+            put(NEXT_CONTROL_ID_KEY, state.nextControlId)
             put(TEMPERATURE_KEY, state.temperature)
             put(IS_ON_KEY, state.isOn)
         }
@@ -105,6 +108,7 @@ class ControlStateRepository(context: Context) {
         const val STATE_KEY = "state"
         const val CONTROLS_KEY = "controls"
         const val ACTIVE_CONTROL_ID_KEY = "activeControlId"
+        const val NEXT_CONTROL_ID_KEY = "nextControlId"
         const val TEMPERATURE_KEY = "temperature"
         const val IS_ON_KEY = "isOn"
         const val ID_KEY = "id"

@@ -1,27 +1,19 @@
 package com.equipe5.acremote.ui.model
 
 data class AcRemoteUiState(
-    val brand: String = "LG",
+    val brand: String = "",
     val temperature: Int = 24,
-    val isOn: Boolean = true,
+    val isOn: Boolean = false,
     val screen: AppScreen = AppScreen.Remote,
     val deviceName: String = "",
     val deviceBrand: String = "",
+    val editingControlId: Long? = null,
     val learningCommand: IrCommand? = null,
     val learningTimedOutCommand: IrCommand? = null,
     val learnedCommands: Set<IrCommand> = emptySet(),
-    val controls: List<RegisteredControl> = listOf(
-        RegisteredControl(
-            id = 1L,
-            name = "Controle LG",
-            brand = "LG",
-            irCommands = IrCommand.entries.toSet(),
-            temperature = 24,
-            isOn = true
-        )
-    ),
-    val activeControlId: Long = 1L,
-    val nextControlId: Long = 2L
+    val controls: List<RegisteredControl> = emptyList(),
+    val activeControlId: Long = 0L,
+    val nextControlId: Long = 1L
 )
 
 data class RegisteredControl(
