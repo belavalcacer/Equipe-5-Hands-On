@@ -1,7 +1,9 @@
 package com.equipe5.acremote.ui.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.equipe5.acremote.data.ControlStateRepository
 import com.equipe5.acremote.ui.model.AcRemoteUiState
 import com.equipe5.acremote.ui.model.AppScreen
 import com.equipe5.acremote.ui.model.IrCommand
@@ -13,20 +15,45 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class AcRemoteViewModel : ViewModel() {
-    private val _uiState = MutableStateFlow(AcRemoteUiState())
+class AcRemoteViewModel(application: Application) : AndroidViewModel(application) {
+    private val stateRepository = ControlStateRepository(application)
+    private val _uiState = MutableStateFlow(stateRepository.load(AcRemoteUiState()))
     val uiState = _uiState.asStateFlow()
     private var learningTimeoutJob: Job? = null
 
     fun increaseTemperature() = updateState {
-        if (it.isOn && it.temperature < MAX_TEMPERATURE) it.copy(temperature = it.temperature + 1) else it
+        if (it.isOn && it.temperature < MAX_TEMPERATURE) {
+            val temperature = it.temperature + 1
+            it.copy(
+                temperature = temperature,
+                controls = it.controls.updateActiveControl(it.activeControlId) { control ->
+                    control.copy(temperature = temperature)
+                }
+            )
+        } else it
     }
 
     fun decreaseTemperature() = updateState {
-        if (it.isOn && it.temperature > MIN_TEMPERATURE) it.copy(temperature = it.temperature - 1) else it
+        if (it.isOn && it.temperature > MIN_TEMPERATURE) {
+            val temperature = it.temperature - 1
+            it.copy(
+                temperature = temperature,
+                controls = it.controls.updateActiveControl(it.activeControlId) { control ->
+                    control.copy(temperature = temperature)
+                }
+            )
+        } else it
     }
 
-    fun togglePower() = updateState { it.copy(isOn = !it.isOn) }
+    fun togglePower() = updateState {
+        val isOn = !it.isOn
+        it.copy(
+            isOn = isOn,
+            controls = it.controls.updateActiveControl(it.activeControlId) { control ->
+                control.copy(isOn = isOn)
+            }
+        )
+    }
 
     fun openAddDevice() = updateState {
         learningTimeoutJob?.cancel()
@@ -51,7 +78,12 @@ class AcRemoteViewModel : ViewModel() {
 
     fun selectControl(controlId: Long) = updateState { state ->
         state.controls.firstOrNull { it.id == controlId }?.let { control ->
-            state.copy(brand = control.brand, activeControlId = control.id)
+            state.copy(
+                brand = control.brand,
+                temperature = control.temperature,
+                isOn = control.isOn,
+                activeControlId = control.id
+            )
         } ?: state
     }
 
@@ -93,10 +125,14 @@ class AcRemoteViewModel : ViewModel() {
                 id = it.nextControlId,
                 name = it.deviceName.ifBlank { it.deviceBrand },
                 brand = it.deviceBrand,
-                irCommands = it.learnedCommands
+                irCommands = it.learnedCommands,
+                temperature = DEFAULT_TEMPERATURE,
+                isOn = true
             )
             it.copy(
                 brand = control.brand,
+                temperature = control.temperature,
+                isOn = control.isOn,
                 screen = AppScreen.Remote,
                 learningCommand = null,
                 learningTimedOutCommand = null,
@@ -108,12 +144,22 @@ class AcRemoteViewModel : ViewModel() {
     }
 
     private fun updateState(transform: (AcRemoteUiState) -> AcRemoteUiState) {
-        _uiState.update(transform)
+        _uiState.update { currentState ->
+            transform(currentState).also(stateRepository::save)
+        }
+    }
+
+    private inline fun List<RegisteredControl>.updateActiveControl(
+        activeControlId: Long,
+        transform: (RegisteredControl) -> RegisteredControl
+    ): List<RegisteredControl> = map { control ->
+        if (control.id == activeControlId) transform(control) else control
     }
 
     private companion object {
         const val MIN_TEMPERATURE = 16
         const val MAX_TEMPERATURE = 30
+        const val DEFAULT_TEMPERATURE = 24
         const val IR_LEARNING_TIMEOUT_MS = 15_000L
     }
 }

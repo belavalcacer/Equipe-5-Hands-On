@@ -15,7 +15,9 @@ data class AcRemoteUiState(
             id = 1L,
             name = "Controle LG",
             brand = "LG",
-            irCommands = IrCommand.entries.toSet()
+            irCommands = IrCommand.entries.toSet(),
+            temperature = 24,
+            isOn = true
         )
     ),
     val activeControlId: Long = 1L,
@@ -26,7 +28,9 @@ data class RegisteredControl(
     val id: Long,
     val name: String,
     val brand: String,
-    val irCommands: Set<IrCommand>
+    val irCommands: Set<IrCommand>,
+    val temperature: Int = 24,
+    val isOn: Boolean = true
 )
 
 enum class AppScreen { Remote, AddDevice }

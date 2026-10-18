@@ -1,0 +1,119 @@
+package com.equipe5.acremote.data
+
+import android.content.Context
+import com.equipe5.acremote.ui.model.AcRemoteUiState
+import com.equipe5.acremote.ui.model.RegisteredControl
+import com.equipe5.acremote.ui.model.IrCommand
+import org.json.JSONArray
+import org.json.JSONObject
+
+/** Stores registered IR controls and the selected remote state on this device. */
+class ControlStateRepository(context: Context) {
+    private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+
+    fun load(defaultState: AcRemoteUiState): AcRemoteUiState {
+        val json = preferences.getString(STATE_KEY, null) ?: return defaultState
+
+        return runCatching {
+            val root = JSONObject(json)
+            val savedActiveControlId = root.optLong(ACTIVE_CONTROL_ID_KEY, defaultState.activeControlId)
+            val savedTemperature = root.optInt(TEMPERATURE_KEY, defaultState.temperature)
+            val savedIsOn = root.optBoolean(IS_ON_KEY, defaultState.isOn)
+            val savedControls = root.getJSONArray(CONTROLS_KEY).toRegisteredControls(
+                legacyActiveControlId = savedActiveControlId,
+                legacyTemperature = savedTemperature,
+                legacyIsOn = savedIsOn
+            )
+            val controls = savedControls.ifEmpty { defaultState.controls }
+            val activeControlId = root.optLong(ACTIVE_CONTROL_ID_KEY, controls.first().id)
+                .takeIf { id -> controls.any { it.id == id } }
+                ?: controls.first().id
+            val activeControl = controls.first { it.id == activeControlId }
+
+            defaultState.copy(
+                brand = activeControl.brand,
+                temperature = activeControl.temperature.coerceIn(MIN_TEMPERATURE, MAX_TEMPERATURE),
+                isOn = activeControl.isOn,
+                controls = controls,
+                activeControlId = activeControlId,
+                nextControlId = maxOf(defaultState.nextControlId, (controls.maxOfOrNull { it.id } ?: 0L) + 1L)
+            )
+        }.getOrElse { defaultState }
+    }
+
+    fun save(state: AcRemoteUiState) {
+        val controlsJson = JSONArray().apply {
+            state.controls.forEach { control ->
+                put(JSONObject().apply {
+                    put(ID_KEY, control.id)
+                    put(NAME_KEY, control.name)
+                    put(BRAND_KEY, control.brand)
+                    put(TEMPERATURE_KEY, control.temperature)
+                    put(IS_ON_KEY, control.isOn)
+                    put(COMMANDS_KEY, JSONArray().apply {
+                        control.irCommands.forEach { command -> put(command.name) }
+                    })
+                })
+            }
+        }
+
+        val stateJson = JSONObject().apply {
+            put(CONTROLS_KEY, controlsJson)
+            put(ACTIVE_CONTROL_ID_KEY, state.activeControlId)
+            put(TEMPERATURE_KEY, state.temperature)
+            put(IS_ON_KEY, state.isOn)
+        }
+
+        preferences.edit().putString(STATE_KEY, stateJson.toString()).apply()
+    }
+
+    private fun JSONArray.toRegisteredControls(
+        legacyActiveControlId: Long,
+        legacyTemperature: Int,
+        legacyIsOn: Boolean
+    ): List<RegisteredControl> = buildList {
+        for (index in 0 until length()) {
+            val item = optJSONObject(index) ?: continue
+            val commandsJson = item.optJSONArray(COMMANDS_KEY) ?: JSONArray()
+            val commands = buildSet {
+                for (commandIndex in 0 until commandsJson.length()) {
+                    runCatching { IrCommand.valueOf(commandsJson.optString(commandIndex)) }
+                        .getOrNull()?.let(::add)
+                }
+            }
+            add(
+                RegisteredControl(
+                    id = item.optLong(ID_KEY, index.toLong() + 1L),
+                    name = item.optString(NAME_KEY),
+                    brand = item.optString(BRAND_KEY),
+                    irCommands = commands,
+                    temperature = item.optInt(
+                        TEMPERATURE_KEY,
+                        if (item.optLong(ID_KEY) == legacyActiveControlId) legacyTemperature else DEFAULT_TEMPERATURE
+                    ).coerceIn(MIN_TEMPERATURE, MAX_TEMPERATURE),
+                    isOn = item.optBoolean(
+                        IS_ON_KEY,
+                        if (item.optLong(ID_KEY) == legacyActiveControlId) legacyIsOn else DEFAULT_IS_ON
+                    )
+                )
+            )
+        }
+    }
+
+    private companion object {
+        const val PREFERENCES_NAME = "titan_beam_control_state"
+        const val STATE_KEY = "state"
+        const val CONTROLS_KEY = "controls"
+        const val ACTIVE_CONTROL_ID_KEY = "activeControlId"
+        const val TEMPERATURE_KEY = "temperature"
+        const val IS_ON_KEY = "isOn"
+        const val ID_KEY = "id"
+        const val NAME_KEY = "name"
+        const val BRAND_KEY = "brand"
+        const val COMMANDS_KEY = "commands"
+        const val DEFAULT_TEMPERATURE = 24
+        const val DEFAULT_IS_ON = true
+        const val MIN_TEMPERATURE = 16
+        const val MAX_TEMPERATURE = 30
+    }
+}
