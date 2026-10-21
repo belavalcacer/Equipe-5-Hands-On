@@ -22,6 +22,7 @@ public final class ConsumerIrManager {
     private static final int MAX_PAYLOAD_SIZE = 1036;
     private static final byte VERSION = 1;
     private static final byte COMMAND_READ = 0x01;
+    private static final byte COMMAND_WRITE = 0x02;
     private static final byte RESPONSE_FLAG = 0x01;
     private static final byte STATUS_OK = 0x00;
     private static final int DEFAULT_CARRIER_HZ = 38_000;
@@ -48,17 +49,44 @@ public final class ConsumerIrManager {
         }
     }
 
-    /** Sends a pattern through the Consumer IR HAL. Durations are in microseconds. */
-    public synchronized boolean transmit(int carrierFreq, int[] pattern) throws RemoteException {
-        if (service == null && !connect()) return false;
-        if (pattern == null || pattern.length == 0) return false;
-        ArrayList<Integer> hidlPattern = new ArrayList<>(pattern.length);
-        for (int duration : pattern) hidlPattern.add(duration);
-        try {
-            return service.transmit(carrierFreq, hidlPattern);
-        } catch (RemoteException error) {
-            service = null;
-            throw error;
+    /** Sends a captured RAW pattern to the receiver firmware. Durations are in microseconds. */
+    public synchronized boolean transmit(int carrierFreq, int[] pattern) throws IOException {
+        if (carrierFreq < 20000 || carrierFreq > 60000 || pattern == null || pattern.length == 0) {
+            throw new IllegalArgumentException("Frequência ou padrão IR inválido.");
+        }
+        int phaseCount = pattern.length + (pattern.length % 2);
+        int symbols = phaseCount / 2;
+        if (symbols > 256) throw new IllegalArgumentException("O padrão IR excede 256 símbolos.");
+
+        byte[] payload = new byte[12 + symbols * 4];
+        ByteBuffer code = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
+        code.putShort((short) symbols).putShort((short) 0).putInt(1_000_000).putInt(carrierFreq);
+        for (int index = 0; index < phaseCount; index += 2) {
+            int mark = pattern[index];
+            int space = index + 1 < pattern.length ? pattern[index + 1] : 0;
+            if (mark <= 0 || mark > 32767 || space < 0 || space > 32767 || (space == 0 && index + 2 != phaseCount)) {
+                throw new IllegalArgumentException("Duração inválida no padrão IR.");
+            }
+            code.putShort((short) (0x8000 | mark));
+            code.putShort((short) space);
+        }
+
+        int requestSequence = nextSequence();
+        byte[] request = buildPacket(COMMAND_WRITE, (byte) 0, (byte) 0, requestSequence, payload);
+        try (RandomAccessFile device = new RandomAccessFile(DEVICE_PATH, "rw")) {
+            device.write(request);
+            byte[] header = new byte[HEADER_SIZE];
+            device.readFully(header);
+            Header response = parseHeader(header);
+            if (response.command != COMMAND_WRITE || (response.flags & RESPONSE_FLAG) == 0 || response.sequence != requestSequence) {
+                throw new IOException("Resposta de transmissão IR inválida.");
+            }
+            if (response.payloadLength != 0) throw new IOException("A resposta de transmissão contém dados inesperados.");
+            verifyChecksum(header, new byte[0], response.checksum);
+            if (response.status != STATUS_OK) {
+                throw new IOException("A transmissão IR falhou (status " + (response.status & 0xff) + ").");
+            }
+            return true;
         }
     }
 
@@ -152,8 +180,14 @@ public final class ConsumerIrManager {
             throw new IOException("Formato RAW de IR inválido.");
         }
         int[] pattern = new int[symbols * 2];
-        for (int index = 0; index < pattern.length; index++) {
-            pattern[index] = data.getShort() & 0xffff;
+        for (int index = 0; index < symbols; index++) {
+            int mark = data.getShort() & 0xffff;
+            int space = data.getShort() & 0xffff;
+            if ((mark & 0x8000) == 0 || (space & 0x8000) != 0) {
+                throw new IOException("Níveis inválidos no padrão RAW de IR.");
+            }
+            pattern[index * 2] = mark & 0x7fff;
+            pattern[index * 2 + 1] = space & 0x7fff;
         }
         return new IrSignal(carrier == 0 ? DEFAULT_CARRIER_HZ : carrier, pattern);
     }
