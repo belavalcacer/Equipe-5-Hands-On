@@ -4,6 +4,7 @@ import android.content.Context
 import com.equipe5.acremote.ui.model.AcRemoteUiState
 import com.equipe5.acremote.ui.model.RegisteredControl
 import com.equipe5.acremote.ui.model.IrCommand
+import com.equipe5.acremote.ui.model.StoredIrSignal
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -55,6 +56,17 @@ class ControlStateRepository(context: Context) {
                     put(COMMANDS_KEY, JSONArray().apply {
                         control.irCommands.forEach { command -> put(command.name) }
                     })
+                    put(FIXED_TEMPERATURES_KEY, JSONArray().apply {
+                        control.fixedTemperatureCommands.sorted().forEach(::put)
+                    })
+                    put(SIGNALS_KEY, JSONObject().apply {
+                        control.irSignals.forEach { (key, signal) ->
+                            put(key, JSONObject().apply {
+                                put(CARRIER_FREQUENCY_KEY, signal.carrierFrequencyHz)
+                                put(PATTERN_KEY, JSONArray(signal.pattern))
+                            })
+                        }
+                    })
                 })
             }
         }
@@ -84,12 +96,33 @@ class ControlStateRepository(context: Context) {
                         .getOrNull()?.let(::add)
                 }
             }
+            val fixedTemperaturesJson = item.optJSONArray(FIXED_TEMPERATURES_KEY) ?: JSONArray()
+            val fixedTemperatures = buildSet {
+                for (temperatureIndex in 0 until fixedTemperaturesJson.length()) {
+                    fixedTemperaturesJson.optInt(temperatureIndex).takeIf {
+                        it in MIN_TEMPERATURE..MAX_TEMPERATURE
+                    }?.let(::add)
+                }
+            }.take(MAX_FIXED_TEMPERATURES).toSet()
+            val signalsJson = item.optJSONObject(SIGNALS_KEY) ?: JSONObject()
+            val signals = buildMap {
+                signalsJson.keys().forEach { key ->
+                    val signal = signalsJson.optJSONObject(key) ?: return@forEach
+                    val pattern = signal.optJSONArray(PATTERN_KEY) ?: return@forEach
+                    val durations = List(pattern.length()) { pattern.optInt(it) }
+                    if (durations.isNotEmpty() && durations.all { it >= 0 }) {
+                        put(key, StoredIrSignal(signal.optInt(CARRIER_FREQUENCY_KEY, DEFAULT_CARRIER_FREQUENCY), durations))
+                    }
+                }
+            }
             add(
                 RegisteredControl(
                     id = item.optLong(ID_KEY, index.toLong() + 1L),
                     name = item.optString(NAME_KEY),
                     brand = item.optString(BRAND_KEY),
                     irCommands = commands,
+                    fixedTemperatureCommands = fixedTemperatures,
+                    irSignals = signals,
                     temperature = item.optInt(
                         TEMPERATURE_KEY,
                         if (item.optLong(ID_KEY) == legacyActiveControlId) legacyTemperature else DEFAULT_TEMPERATURE
@@ -115,9 +148,15 @@ class ControlStateRepository(context: Context) {
         const val NAME_KEY = "name"
         const val BRAND_KEY = "brand"
         const val COMMANDS_KEY = "commands"
+        const val FIXED_TEMPERATURES_KEY = "fixedTemperatures"
+        const val SIGNALS_KEY = "signals"
+        const val CARRIER_FREQUENCY_KEY = "carrierFrequencyHz"
+        const val PATTERN_KEY = "pattern"
+        const val DEFAULT_CARRIER_FREQUENCY = 38_000
         const val DEFAULT_TEMPERATURE = 24
         const val DEFAULT_IS_ON = true
         const val MIN_TEMPERATURE = 16
         const val MAX_TEMPERATURE = 30
+        const val MAX_FIXED_TEMPERATURES = 6
     }
 }

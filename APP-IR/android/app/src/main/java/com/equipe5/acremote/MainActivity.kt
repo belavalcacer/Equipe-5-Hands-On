@@ -136,9 +136,9 @@ private fun ACRemoteApp(viewModel: AcRemoteViewModel = viewModel()) {
                     AppScreen.Remote -> if (uiState.controls.isEmpty()) {
                         NoControlsScreen(onCreateControl = viewModel::openAddDevice)
                     } else {
-                        RemoteScreen(uiState, { scope.launch { drawerState.open() } }, viewModel::decreaseTemperature, viewModel::increaseTemperature, viewModel::togglePower)
+                        RemoteScreen(uiState, { scope.launch { drawerState.open() } }, viewModel::decreaseTemperature, viewModel::increaseTemperature, viewModel::togglePower, viewModel::setFixedTemperature)
                     }
-                    AppScreen.AddDevice -> AddDeviceScreen(uiState, viewModel::closeAddDevice, viewModel::updateDeviceName, viewModel::updateDeviceBrand, viewModel::startLearning, viewModel::confirmIrCommandLearned, viewModel::saveDevice)
+                    AppScreen.AddDevice -> AddDeviceScreen(uiState, viewModel::closeAddDevice, viewModel::updateDeviceName, viewModel::updateDeviceBrand, viewModel::startLearning, viewModel::confirmIrCommandLearned, viewModel::addFixedTemperature, viewModel::removeFixedTemperature, viewModel::saveDevice)
                 }
             }
         }
@@ -159,6 +159,15 @@ private fun ACRemoteApp(viewModel: AcRemoteViewModel = viewModel()) {
                     dismissButton = { TextButton(onClick = { pendingDeleteControlId = null }) { Text("Cancelar") } }
                 )
             }
+        }
+
+        uiState.missingCommandMessage?.let { message ->
+            AlertDialog(
+                onDismissRequest = viewModel::dismissMissingCommandMessage,
+                title = { Text("Comando não cadastrado") },
+                text = { Text(message) },
+                confirmButton = { TextButton(onClick = viewModel::dismissMissingCommandMessage) { Text("Entendi") } }
+            )
         }
 
     }
