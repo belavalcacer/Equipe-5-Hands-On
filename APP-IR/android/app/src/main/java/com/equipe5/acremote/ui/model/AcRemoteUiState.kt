@@ -15,6 +15,7 @@ data class AcRemoteUiState(
     val learnedFixedTemperatures: Set<Int> = emptySet(),
     val irSignals: Map<String, StoredIrSignal> = emptyMap(),
     val missingCommandMessage: String? = null,
+    val learningErrorMessage: String? = null,
     val controls: List<RegisteredControl> = emptyList(),
     val activeControlId: Long = 0L,
     val nextControlId: Long = 1L

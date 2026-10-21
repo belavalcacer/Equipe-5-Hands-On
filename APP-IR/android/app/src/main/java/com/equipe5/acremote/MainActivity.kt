@@ -170,5 +170,14 @@ private fun ACRemoteApp(viewModel: AcRemoteViewModel = viewModel()) {
             )
         }
 
+        uiState.learningErrorMessage?.let { message ->
+            AlertDialog(
+                onDismissRequest = viewModel::dismissLearningErrorMessage,
+                title = { Text("Leitura IR indisponível") },
+                text = { Text(message) },
+                confirmButton = { TextButton(onClick = viewModel::dismissLearningErrorMessage) { Text("Entendi") } }
+            )
+        }
+
     }
 }

@@ -92,7 +92,8 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
             fixedTemperatures = emptySet(),
             learnedFixedTemperatures = emptySet(),
             irSignals = emptyMap(),
-            missingCommandMessage = null
+            missingCommandMessage = null,
+            learningErrorMessage = null
         )
     }
 
@@ -167,13 +168,20 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
         learningTimeoutJob?.cancel()
         updateState { it.copy(learningCommand = command, learningTimedOutCommand = null) }
         learningTimeoutJob = viewModelScope.launch {
-            val signal = withTimeoutOrNull(IR_LEARNING_TIMEOUT_MS) {
-                withContext(Dispatchers.IO) { irGateway.learn(IR_LEARNING_TIMEOUT_MS.toInt()).getOrNull() }
+            val result = withTimeoutOrNull(IR_LEARNING_TIMEOUT_MS) {
+                withContext(Dispatchers.IO) { irGateway.learn(IR_LEARNING_TIMEOUT_MS.toInt()) }
             }
             updateState { state ->
                 if (state.learningCommand != command) state
-                else if (signal == null) state.copy(learningCommand = null, learningTimedOutCommand = command)
-                else state.saveLearned(command, signal)
+                else if (result == null) state.copy(learningCommand = null, learningTimedOutCommand = command)
+                else result.fold(
+                    onSuccess = { signal -> state.saveLearned(command, signal) },
+                    onFailure = { error -> state.copy(
+                        learningCommand = null,
+                        learningTimedOutCommand = null,
+                        learningErrorMessage = "Não foi possível iniciar a leitura IR: ${error.cause?.message ?: error.message ?: "serviço indisponível"}."
+                    ) }
+                )
             }
         }
     }
@@ -198,6 +206,7 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun dismissMissingCommandMessage() = updateState { it.copy(missingCommandMessage = null) }
+    fun dismissLearningErrorMessage() = updateState { it.copy(learningErrorMessage = null) }
 
     fun saveDevice() {
         learningTimeoutJob?.cancel()
