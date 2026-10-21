@@ -8,10 +8,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,7 +28,7 @@ import com.equipe5.acremote.ui.model.AcRemoteUiState
 import com.equipe5.acremote.ui.theme.*
 
 @Composable
-fun RemoteScreen(uiState: AcRemoteUiState, onOpenMenu: () -> Unit, onDecreaseTemperature: () -> Unit, onIncreaseTemperature: () -> Unit, onTogglePower: () -> Unit) {
+fun RemoteScreen(uiState: AcRemoteUiState, onOpenMenu: () -> Unit, onDecreaseTemperature: () -> Unit, onIncreaseTemperature: () -> Unit, onTogglePower: () -> Unit, onSetFixedTemperature: (Int) -> Unit) {
     Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onOpenMenu) { Icon(Icons.Default.Menu, "Abrir menu", tint = Ink) } }
         Spacer(Modifier.height(8.dp))
@@ -42,6 +44,21 @@ fun RemoteScreen(uiState: AcRemoteUiState, onOpenMenu: () -> Unit, onDecreaseTem
                 PowerButton(uiState.isOn, onTogglePower)
                 TemperatureButton("+", uiState.isOn, onIncreaseTemperature)
             }
+            if (uiState.controls.firstOrNull { it.id == uiState.activeControlId }?.fixedTemperatureCommands?.isNotEmpty() == true) {
+                Spacer(Modifier.height(24.dp))
+                Text("Temperaturas fixas", color = Color(0xFF82909C), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(10.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    uiState.controls.first { it.id == uiState.activeControlId }.fixedTemperatureCommands.sorted().chunked(3).forEach { temperatures ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            temperatures.forEach { fixedTemperature ->
+                                FixedTemperatureButton(fixedTemperature, uiState.isOn, Modifier.weight(1f)) { onSetFixedTemperature(fixedTemperature) }
+                            }
+                            repeat(3 - temperatures.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -55,3 +72,4 @@ fun RemoteScreen(uiState: AcRemoteUiState, onOpenMenu: () -> Unit, onDecreaseTem
 
 @Composable private fun TemperatureButton(label: String, enabled: Boolean, onClick: () -> Unit) { Box(Modifier.size(64.dp).clip(CircleShape).background(if (enabled) Cyan else Color(0xFFE4E9EC)).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) { Text(label, color = Color.White, fontSize = 36.sp, textAlign = TextAlign.Center) } }
 @Composable private fun PowerButton(isOn: Boolean, onClick: () -> Unit) { Box(Modifier.size(78.dp).clip(CircleShape).background(Orange).clickable(onClick = onClick), contentAlignment = Alignment.Center) { Icon(Icons.Default.PowerSettingsNew, if (isOn) "Desligar" else "Ligar", tint = Color.White, modifier = Modifier.size(34.dp)) } }
+@Composable private fun FixedTemperatureButton(temperature: Int, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) { Surface(onClick = onClick, enabled = enabled, modifier = modifier, color = if (enabled) Color(0xFFEAF5F8) else Color(0xFFE4E9EC), shape = RoundedCornerShape(12.dp)) { Text("${temperature}°C", color = if (enabled) Ink else Color(0xFF82909C), fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp), textAlign = TextAlign.Center) } }
