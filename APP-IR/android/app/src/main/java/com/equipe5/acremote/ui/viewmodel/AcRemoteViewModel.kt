@@ -168,7 +168,7 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
         updateState { it.copy(learningCommand = command, learningTimedOutCommand = null) }
         learningTimeoutJob = viewModelScope.launch {
             val signal = withTimeoutOrNull(IR_LEARNING_TIMEOUT_MS) {
-                withContext(Dispatchers.IO) { irGateway.learn(IR_LEARNING_TIMEOUT_MS).getOrNull() }
+                withContext(Dispatchers.IO) { irGateway.learn(IR_LEARNING_TIMEOUT_MS.toInt()).getOrNull() }
             }
             updateState { state ->
                 if (state.learningCommand != command) state
