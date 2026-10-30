@@ -1,0 +1,28 @@
+java_library {
+    name: "titanbeam.consumerirmanager",
+
+    srcs: [
+        "src/**/*.java",
+    ],
+
+    static_libs: [
+        "android.hardware.ir-V1.0-java",
+    ],
+
+    required: [
+        "titanbeam.consumerirmanager.xml",
+    ],
+
+    system_ext_specific: true,
+    platform_apis: true,
+    installable: true,
+}
+
+// Copies the permission XML to system_ext/etc/permissions.
+prebuilt_etc {
+    name: "titanbeam.consumerirmanager.xml",
+    src: "titanbeam.consumerirmanager.xml",
+    filename_from_src: true,
+    relative_install_path: "permissions",
+    system_ext_specific: true,
+}

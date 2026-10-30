@@ -1,0 +1,42 @@
+menu "RAW IR device"
+
+config IR_UART_PORT
+    int "UART controller for binary protocol"
+    range 1 2
+    default 1
+
+config IR_UART_TX_GPIO
+    int "Protocol UART TX GPIO"
+    range 0 33
+    default 25
+
+config IR_UART_RX_GPIO
+    int "Protocol UART RX GPIO"
+    range 0 39
+    default 26
+
+config IR_UART_BAUD_RATE
+    int "Protocol UART baud rate (8N1, no flow control)"
+    range 9600 921600
+    default 115200
+
+config IR_RX_CAPTURE_TIMEOUT_MS
+    int "READ capture timeout in milliseconds"
+    range 100 60000
+    default 5000
+    help
+        READ enables RX and waits for one new complete valid frame. On timeout,
+        RX is disabled and the response is NO_DATA. Noise does not restart this
+        deadline. The Linux serial timeout must be longer than this value.
+
+config IR_RX_IDLE_US
+    int "RX frame boundary: idle duration in microseconds"
+    range 1000 65535
+    default 40000
+    help
+        A constant signal longer than this ends the capture. Select a value
+        longer than the largest space inside the desired IR frame. The classic
+        ESP32 idle threshold is 16 bits; individual RAW phase durations remain
+        limited to 32767 ticks (32767 microseconds at 1 MHz).
+
+endmenu

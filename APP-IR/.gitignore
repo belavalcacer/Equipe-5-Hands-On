@@ -1,0 +1,22 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+
+# Ignorar caches do Gradle e dependências locais
+.gradle/
+.gradle-user/
+build/
+android/.gradle/
+android/.gradle-user/
+android/build/
+# Android Studio project metadata, local SDK configuration and local emulator data
+android/.idea/
+android/local.properties
+android/.android-user/
+android/.kotlin/
+
+# Generated app packages and native build intermediates
+android/app/build/
+android/.cxx/
+*.apk
+*.aab

@@ -1,0 +1,99 @@
+# macOS and file managers
+.DS_Store
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+
+# Linux desktop metadata
+.directory
+
+# Editor temporary files
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+*.orig
+\#*\#
+
+# Logs
+*.log
+
+# ESP-IDF and CMake build output
+build/
+**/build/
+*.o
+*.a
+*.out
+*.exe
+*.d
+*.gcda
+*.gcno
+*.gcov
+
+# Generated ESP-IDF configuration and firmware images.
+# Keep sdkconfig.defaults versioned as the reproducible project configuration.
+*.bin
+*.elf
+*.map
+flasher_args.json
+sdkconfig.old
+sdkconfig
+
+# ESP-IDF dependency directories
+components/.idf/
+**/components/.idf/
+managed_components/
+.espressif/
+
+# CMake generated files outside build/ (for example, host tests)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+Testing/
+
+# Python bytecode, packaging output, and virtual environments
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.egg-info/
+dist/
+wheelhouse/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+venv/
+.venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Captures produced by ir_client.py
+*.ir
+
+# Language-server and IDE machine state.
+# .clangd, .devcontainer/, and intentional shared .vscode settings remain trackable.
+.ccls-cache/
+compile_commands.json
+.vscode/ipch/
+.vscode/.browse.VC.db*
+.vscode/*.log
+.idea/
+
+# Windows Explorer metadata
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# User-specific IDE files
+*.user
+*.suo
+*.sln.docstates
