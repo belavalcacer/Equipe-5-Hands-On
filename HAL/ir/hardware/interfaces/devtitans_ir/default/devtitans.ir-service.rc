@@ -1,0 +1,10 @@
+service vendor.devtitans.ir-default /vendor/bin/hw/devtitans.ir-service
+    class hal
+    user system
+    group system
+
+# Automatically change the ownership of the carrier file to the system user on boot
+on property:sys.boot_completed=1
+    chmod 0664 /sys/devices/platform/soc/a600000.ssusb/a600000.dwc3/xhci-hcd.0.auto/usb1/1-1/1
+    -1:1.0/carrier
+    chown system system /sys/devices/platform/soc/a600000.ssusb/a600000.dwc3/xhci-hcd.0.auto/usb1/1-1/1-1:1.0/carrier

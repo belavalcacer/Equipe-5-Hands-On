@@ -1,0 +1,2 @@
+# Allow privileged apps to access Devtitans IR HAL
+hal_client_domain(priv_app, hal_devtitans_ir)
