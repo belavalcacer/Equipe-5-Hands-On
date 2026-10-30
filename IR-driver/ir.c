@@ -532,6 +532,13 @@ static struct usb_driver devtitans_ir_driver = {
  * class has to exist before probe() can call device_create().
  */
 
+static char *ir_devnode(struct device *dev, umode_t *mode)
+{
+    if (mode)
+        *mode = 0666;
+    return NULL;
+}
+
 static int __init devtitans_ir_init(void)
 {
     int ret;
@@ -539,6 +546,8 @@ static int __init devtitans_ir_init(void)
     ir_class = ir_class_create("devtitans_ir");
     if (IS_ERR(ir_class))
         return PTR_ERR(ir_class);
+
+    ir_class->devnode = ir_devnode;
 
     ret = usb_register(&devtitans_ir_driver);
     if (ret) {

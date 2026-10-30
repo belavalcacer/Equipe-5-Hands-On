@@ -1,0 +1,2 @@
+# Allow shell to act as a client of Devtitans IR HAL for ADB testing
+hal_client_domain(shell, hal_devtitans_ir)

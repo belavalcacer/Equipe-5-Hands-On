@@ -1,0 +1,12 @@
+# devtitans_ir HAL interface attribute definitions
+hal_attribute(devtitans_ir)
+
+# Service manager type definition for AIDL HAL
+type hal_devtitans_ir_service, hal_service_type, service_manager_type;
+
+# Associate client and server domains with the service
+hal_attribute_service(hal_devtitans_ir, hal_devtitans_ir_service)
+
+# Allow binder IPC between client and server
+binder_call(hal_devtitans_ir_client, hal_devtitans_ir_server)
+binder_call(hal_devtitans_ir_server, hal_devtitans_ir_client)

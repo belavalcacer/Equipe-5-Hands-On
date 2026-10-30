@@ -1,0 +1,17 @@
+type hal_devtitans_ir_default, domain;
+hal_server_domain(hal_devtitans_ir_default, hal_devtitans_ir)
+
+type hal_devtitans_ir_default_exec, exec_type, vendor_file_type, file_type;
+init_daemon_domain(hal_devtitans_ir_default)
+
+binder_use(hal_devtitans_ir_default)
+
+# Devtitans IR char device permissions
+allow hal_devtitans_ir_default devtitans_ir_device:chr_file rw_file_perms;
+
+# Devtitans IR sysfs permissions
+allow hal_devtitans_ir_default sysfs_devtitans_ir:file rw_file_perms;
+allow hal_devtitans_ir_default sysfs_devtitans_ir:dir r_dir_perms;
+allow hal_devtitans_ir_default sysfs:file rw_file_perms;
+allow hal_devtitans_ir_default sysfs:dir r_dir_perms;
+
