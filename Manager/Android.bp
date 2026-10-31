@@ -6,7 +6,7 @@ java_library {
     ],
 
     static_libs: [
-        "android.hardware.ir-V1.0-java",
+        "devtitans.ir-V1-java",
     ],
 
     required: [

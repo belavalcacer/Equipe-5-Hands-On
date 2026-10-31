@@ -4,9 +4,10 @@ import com.equipe5.acremote.ui.model.StoredIrSignal
 
 /** Reflection keeps the debug APK buildable; the manager is supplied by the Titan Beam system image. */
 class ConsumerIrGateway {
-    fun learn(timeoutMillis: Int): Result<StoredIrSignal> = runCatching {
+    fun learn(timeoutMillis: Int): Result<StoredIrSignal?> = runCatching {
         val manager = managerInstance()
         val signal = manager.javaClass.getMethod("learn", Int::class.javaPrimitiveType).invoke(manager, timeoutMillis)
+            ?: return@runCatching null
         val carrier = signal.javaClass.getMethod("getCarrierFrequencyHz").invoke(signal) as Int
         val pattern = (signal.javaClass.getMethod("getPattern").invoke(signal) as IntArray).toList()
         StoredIrSignal(carrier, pattern)

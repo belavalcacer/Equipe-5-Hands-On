@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -168,14 +167,17 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
         learningTimeoutJob?.cancel()
         updateState { it.copy(learningCommand = command, learningTimedOutCommand = null) }
         learningTimeoutJob = viewModelScope.launch {
-            val result = withTimeoutOrNull(IR_LEARNING_TIMEOUT_MS) {
+            val result = withTimeoutOrNull(IR_LEARNING_OPERATION_TIMEOUT_MS) {
                 withContext(Dispatchers.IO) { irGateway.learn(IR_LEARNING_TIMEOUT_MS.toInt()) }
             }
             updateState { state ->
                 if (state.learningCommand != command) state
                 else if (result == null) state.copy(learningCommand = null, learningTimedOutCommand = command)
                 else result.fold(
-                    onSuccess = { signal -> state.saveLearned(command, signal) },
+                    onSuccess = { signal ->
+                        if (signal == null) state.copy(learningCommand = null, learningTimedOutCommand = command)
+                        else state.saveLearned(command, signal)
+                    },
                     onFailure = { error -> state.copy(
                         learningCommand = null,
                         learningTimedOutCommand = null,
@@ -292,6 +294,7 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
         const val DEFAULT_TEMPERATURE = 24
         const val NO_ACTIVE_CONTROL_ID = 0L
         const val IR_LEARNING_TIMEOUT_MS = 10_000L
+        const val IR_LEARNING_OPERATION_TIMEOUT_MS = 12_000L
         const val MAX_FIXED_TEMPERATURES = 6
     }
 }
