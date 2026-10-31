@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <permissions>
-    <library name="titanbeam.consumerirmanager" file="/system_ext/framework/devtitans.smartlampmanager.jar"/>
+    <library name="titanbeam.consumerirmanager" file="/system_ext/framework/titanbeam.consumerirmanager.jar"/>
 </permissions>

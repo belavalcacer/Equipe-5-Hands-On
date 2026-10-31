@@ -6,6 +6,10 @@
         android:label="Titan Beam"
         android:theme="@style/Theme.TitanBeam"
         android:supportsRtl="true">
+        <uses-library
+            android:name="titanbeam.consumerirmanager"
+            android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">

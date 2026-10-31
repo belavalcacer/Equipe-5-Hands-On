@@ -4,25 +4,34 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.equipe5.acremote.data.ControlStateRepository
+import com.equipe5.acremote.data.ConsumerIrGateway
 import com.equipe5.acremote.ui.model.AcRemoteUiState
 import com.equipe5.acremote.ui.model.AppScreen
 import com.equipe5.acremote.ui.model.IrCommand
+import com.equipe5.acremote.ui.model.FixedTemperatureCommand
+import com.equipe5.acremote.ui.model.LearnableCommand
 import com.equipe5.acremote.ui.model.RegisteredControl
+import com.equipe5.acremote.ui.model.StoredIrSignal
+import com.equipe5.acremote.ui.model.signalKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class AcRemoteViewModel(application: Application) : AndroidViewModel(application) {
     private val stateRepository = ControlStateRepository(application)
+    private val irGateway = ConsumerIrGateway()
     private val _uiState = MutableStateFlow(stateRepository.load(AcRemoteUiState()))
     val uiState = _uiState.asStateFlow()
     private var learningTimeoutJob: Job? = null
 
-    fun increaseTemperature() = updateState {
-        if (it.isOn && it.temperature < MAX_TEMPERATURE) {
+    fun increaseTemperature() { sendSignal(IrCommand.TemperatureUp); updateState {
+        if (!it.hasCommand(IrCommand.TemperatureUp)) it.withMissingCommand("aumentar temperatura")
+        else if (it.isOn && it.temperature < MAX_TEMPERATURE) {
             val temperature = it.temperature + 1
             it.copy(
                 temperature = temperature,
@@ -31,10 +40,11 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
                 }
             )
         } else it
-    }
+    } }
 
-    fun decreaseTemperature() = updateState {
-        if (it.isOn && it.temperature > MIN_TEMPERATURE) {
+    fun decreaseTemperature() { sendSignal(IrCommand.TemperatureDown); updateState {
+        if (!it.hasCommand(IrCommand.TemperatureDown)) it.withMissingCommand("diminuir temperatura")
+        else if (it.isOn && it.temperature > MIN_TEMPERATURE) {
             val temperature = it.temperature - 1
             it.copy(
                 temperature = temperature,
@@ -43,17 +53,30 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
                 }
             )
         } else it
-    }
+    } }
 
-    fun togglePower() = updateState {
-        val isOn = !it.isOn
-        it.copy(
+    fun togglePower() { sendSignal(if (_uiState.value.isOn) IrCommand.PowerOff else IrCommand.PowerOn); updateState {
+        val command = if (it.isOn) IrCommand.PowerOff else IrCommand.PowerOn
+        if (!it.hasCommand(command)) it.withMissingCommand(if (it.isOn) "desligar" else "ligar") else {
+            val isOn = !it.isOn
+            it.copy(
             isOn = isOn,
             controls = it.controls.updateActiveControl(it.activeControlId) { control ->
                 control.copy(isOn = isOn)
             }
+            )
+        }
+    } }
+
+    fun setFixedTemperature(temperature: Int) { sendSignal(FixedTemperatureCommand(temperature)); updateState {
+        if (!it.isOn) it
+        else if (FixedTemperatureCommand(temperature).signalKey() !in it.activeControl()?.irSignals.orEmpty()) {
+            it.withMissingCommand("temperatura fixa de ${temperature}°C")
+        } else it.copy(
+            temperature = temperature,
+            controls = it.controls.updateActiveControl(it.activeControlId) { control -> control.copy(temperature = temperature) }
         )
-    }
+    } }
 
     fun openAddDevice() = updateState {
         learningTimeoutJob?.cancel()
@@ -64,7 +87,12 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
             editingControlId = null,
             learningCommand = null,
             learningTimedOutCommand = null,
-            learnedCommands = emptySet()
+            learnedCommands = emptySet(),
+            fixedTemperatures = emptySet(),
+            learnedFixedTemperatures = emptySet(),
+            irSignals = emptyMap(),
+            missingCommandMessage = null,
+            learningErrorMessage = null
         )
     }
 
@@ -98,6 +126,9 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
                 deviceBrand = control.brand,
                 editingControlId = control.id,
                 learnedCommands = control.irCommands,
+                fixedTemperatures = control.fixedTemperatureCommands,
+                learnedFixedTemperatures = control.fixedTemperatureCommands,
+                irSignals = control.irSignals,
                 learningCommand = null,
                 learningTimedOutCommand = null
             )
@@ -132,32 +163,52 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
      * Ponto de integração futuro: o serviço de IR deve iniciar a escuta aqui e
      * chamar [confirmIrCommandLearned] após receber um sinal válido da HAL.
      */
-    fun startLearning(command: IrCommand) {
+    fun startLearning(command: LearnableCommand) {
         learningTimeoutJob?.cancel()
         updateState { it.copy(learningCommand = command, learningTimedOutCommand = null) }
         learningTimeoutJob = viewModelScope.launch {
-            delay(IR_LEARNING_TIMEOUT_MS)
+            val result = withTimeoutOrNull(IR_LEARNING_OPERATION_TIMEOUT_MS) {
+                withContext(Dispatchers.IO) { irGateway.learn(IR_LEARNING_TIMEOUT_MS.toInt()) }
+            }
             updateState { state ->
-                if (state.learningCommand == command) {
-                    state.copy(learningCommand = null, learningTimedOutCommand = command)
-                } else {
-                    state
-                }
+                if (state.learningCommand != command) state
+                else if (result == null) state.copy(learningCommand = null, learningTimedOutCommand = command)
+                else result.fold(
+                    onSuccess = { signal ->
+                        if (signal == null) state.copy(learningCommand = null, learningTimedOutCommand = command)
+                        else state.saveLearned(command, signal)
+                    },
+                    onFailure = { error -> state.copy(
+                        learningCommand = null,
+                        learningTimedOutCommand = null,
+                        learningErrorMessage = "Não foi possível iniciar a leitura IR: ${error.cause?.message ?: error.message ?: "serviço indisponível"}."
+                    ) }
+                )
             }
         }
     }
 
     // Simula a confirmação visual enquanto a captura real ainda não está conectada.
-    fun confirmIrCommandLearned(command: IrCommand) {
-        learningTimeoutJob?.cancel()
-        updateState {
-            it.copy(
-                learningCommand = null,
-                learningTimedOutCommand = null,
-                learnedCommands = it.learnedCommands + command
-            )
-        }
+    fun confirmIrCommandLearned(command: LearnableCommand) = startLearning(command)
+
+    fun addFixedTemperature(temperature: Int) = updateState { state ->
+        if (temperature in MIN_TEMPERATURE..MAX_TEMPERATURE &&
+            temperature !in state.fixedTemperatures &&
+            state.fixedTemperatures.size < MAX_FIXED_TEMPERATURES
+        ) state.copy(fixedTemperatures = state.fixedTemperatures + temperature) else state
     }
+
+    fun removeFixedTemperature(temperature: Int) = updateState {
+        it.copy(
+            fixedTemperatures = it.fixedTemperatures - temperature,
+            learnedFixedTemperatures = it.learnedFixedTemperatures - temperature,
+            learningCommand = if (it.learningCommand == FixedTemperatureCommand(temperature)) null else it.learningCommand,
+            learningTimedOutCommand = if (it.learningTimedOutCommand == FixedTemperatureCommand(temperature)) null else it.learningTimedOutCommand
+        )
+    }
+
+    fun dismissMissingCommandMessage() = updateState { it.copy(missingCommandMessage = null) }
+    fun dismissLearningErrorMessage() = updateState { it.copy(learningErrorMessage = null) }
 
     fun saveDevice() {
         learningTimeoutJob?.cancel()
@@ -167,7 +218,9 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
                 val updatedControl = editingControl.copy(
                     name = it.deviceName.ifBlank { it.deviceBrand },
                     brand = it.deviceBrand,
-                    irCommands = it.learnedCommands
+                    irCommands = it.learnedCommands,
+                    fixedTemperatureCommands = it.learnedFixedTemperatures
+                    , irSignals = it.irSignals
                 )
                 it.copy(
                     brand = if (it.activeControlId == updatedControl.id) updatedControl.brand else it.brand,
@@ -183,6 +236,8 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
                     name = it.deviceName.ifBlank { it.deviceBrand },
                     brand = it.deviceBrand,
                     irCommands = it.learnedCommands,
+                    fixedTemperatureCommands = it.learnedFixedTemperatures,
+                    irSignals = it.irSignals,
                     temperature = DEFAULT_TEMPERATURE,
                     isOn = true
                 )
@@ -215,11 +270,31 @@ class AcRemoteViewModel(application: Application) : AndroidViewModel(application
         if (control.id == activeControlId) transform(control) else control
     }
 
+    private fun AcRemoteUiState.activeControl() = controls.firstOrNull { it.id == activeControlId }
+    private fun AcRemoteUiState.hasCommand(command: IrCommand) = command.signalKey() in activeControl()?.irSignals.orEmpty()
+    private fun AcRemoteUiState.withMissingCommand(commandName: String) =
+        copy(missingCommandMessage = "Cadastre o comando de $commandName antes de usá-lo.")
+
+    private fun AcRemoteUiState.saveLearned(command: LearnableCommand, signal: StoredIrSignal) = copy(
+        learningCommand = null,
+        learningTimedOutCommand = null,
+        learnedCommands = if (command is IrCommand) learnedCommands + command else learnedCommands,
+        learnedFixedTemperatures = if (command is FixedTemperatureCommand) learnedFixedTemperatures + command.temperature else learnedFixedTemperatures,
+        irSignals = irSignals + (command.signalKey() to signal)
+    )
+
+    private fun sendSignal(command: LearnableCommand) {
+        val signal = _uiState.value.activeControl()?.irSignals?.get(command.signalKey()) ?: return
+        viewModelScope.launch { withContext(Dispatchers.IO) { irGateway.transmit(signal) } }
+    }
+
     private companion object {
         const val MIN_TEMPERATURE = 16
         const val MAX_TEMPERATURE = 30
         const val DEFAULT_TEMPERATURE = 24
         const val NO_ACTIVE_CONTROL_ID = 0L
-        const val IR_LEARNING_TIMEOUT_MS = 15_000L
+        const val IR_LEARNING_TIMEOUT_MS = 10_000L
+        const val IR_LEARNING_OPERATION_TIMEOUT_MS = 12_000L
+        const val MAX_FIXED_TEMPERATURES = 6
     }
 }
